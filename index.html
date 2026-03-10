@@ -98,6 +98,16 @@
 
                     <div class="space-y-5">
                         <div>
+                            <label class="block text-sm font-medium text-slate-400 mb-1.5 ml-1">API Key Gemini (Opsional)</label>
+                            <input 
+                                type="password" 
+                                id="apiKeyInput"
+                                placeholder="Kosongkan jika berjalan di web ini..."
+                                class="w-full bg-slate-950/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all"
+                            />
+                        </div>
+
+                        <div>
                             <label class="block text-sm font-medium text-slate-400 mb-1.5 ml-1">Pilih Model Suara</label>
                             <div class="relative">
                                 <select 
@@ -237,6 +247,7 @@
         const voiceSelectEl = document.getElementById('voiceSelect');
         const speedSelectEl = document.getElementById('speedSelect');
         const pitchSelectEl = document.getElementById('pitchSelect');
+        const apiKeyInputEl = document.getElementById('apiKeyInput');
         
         const btnGenerateScript = document.getElementById('btnGenerateScript');
         const btnGenerateAudio = document.getElementById('btnGenerateAudio');
@@ -288,7 +299,16 @@
             for (let i = 0; i < maxRetries; i++) {
                 try {
                     const response = await fetch(url, options);
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    if (!response.ok) {
+                        let errorMsg = `HTTP error! status: ${response.status}`;
+                        try {
+                            const errData = await response.json();
+                            if (errData.error && errData.error.message) {
+                                errorMsg += ` - ${errData.error.message}`;
+                            }
+                        } catch(e) {}
+                        throw new Error(errorMsg);
+                    }
                     return await response.json();
                 } catch (error) {
                     if (i === maxRetries - 1) throw error;
@@ -299,7 +319,13 @@
 
         // Konversi PCM16 Base64 ke WAV Blob
         function createWavBlob(base64Data, sampleRate = 24000) {
-            const binaryString = window.atob(base64Data);
+            // Memastikan kompatibilitas dengan Base64URL dan menambahkan padding jika kurang
+            let safeBase64Data = base64Data.replace(/-/g, '+').replace(/_/g, '/');
+            while (safeBase64Data.length % 4) {
+                safeBase64Data += '=';
+            }
+
+            const binaryString = window.atob(safeBase64Data);
             const len = binaryString.length;
             const pcmBytes = new Uint8Array(len);
             for (let i = 0; i < len; i++) pcmBytes[i] = binaryString.charCodeAt(i);
@@ -353,12 +379,13 @@
             lucide.createIcons();
 
             try {
+                const currentKey = apiKeyInputEl.value.trim() || apiKey;
                 const prompt = `Buatkan script video pendek (TikTok/Reels) affiliate marketing yang sangat menarik, antusias, dan persuasif untuk produk berikut:\nNama Produk: ${name}\nDeskripsi: ${desc}\n\nScript harus singkat (sekitar 30-40 detik saat dibaca), menggunakan bahasa Indonesia yang gaul, asik, tapi profesional, dan diakhiri dengan ajakan untuk klik keranjang kuning atau link di bio. JANGAN BERIKAN TEKS LAIN SELAIN SCRIPTNYA.`;
                 
                 const payload = { contents: [{ parts: [{ text: prompt }] }] };
 
                 const data = await fetchWithRetry(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${currentKey}`,
                     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
                 );
 
@@ -370,7 +397,7 @@
                     throw new Error("Gagal mendapatkan teks dari AI.");
                 }
             } catch (err) {
-                showError('Gagal membuat script otomatis. Silakan tulis manual atau coba lagi.');
+                showError(`Gagal membuat script otomatis: ${err.message}`);
                 console.error(err);
             } finally {
                 btnGenerateScript.disabled = false;
@@ -403,6 +430,7 @@
             lucide.createIcons();
 
             try {
+                const currentKey = apiKeyInputEl.value.trim() || apiKey;
                 const voice = voiceSelectEl.value;
                 const speed = speedSelectEl.value;
                 const pitch = pitchSelectEl.value;
@@ -421,8 +449,9 @@
                     model: "gemini-2.5-flash-preview-tts"
                 };
 
+                // Memperbaiki URL Endpoint ke model utama agar sistem proxy berhasil meng-inject API Key
                 const data = await fetchWithRetry(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`,
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${currentKey}`,
                     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
                 );
 
@@ -445,7 +474,7 @@
                     throw new Error("Tidak ada data audio yang diterima dari server.");
                 }
             } catch (err) {
-                showError('Terjadi kesalahan saat men-generate suara. Silakan coba lagi.');
+                showError(`Terjadi kesalahan saat men-generate suara: ${err.message}`);
                 console.error(err);
             } finally {
                 btnGenerateAudio.disabled = false;
